@@ -11,7 +11,7 @@
 		http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd">
 
 	<!-- From STDIN To RabbitMQ -->
-
+    
 	<int-stream:stdin-channel-adapter id="consoleIn"
 		channel="toRabbit">
 		<int:poller fixed-delay="1000" max-messages-per-poll="1" />
@@ -22,9 +22,10 @@
 	<int-amqp:outbound-channel-adapter
 		channel="toRabbit" amqp-template="amqpTemplate" exchange-name="si.test.exchange"
 		routing-key="si.test.binding" />
-
+	
+	
 	<!-- From RabbitMQ To STDOUT -->
-
+	
 	<int-amqp:inbound-channel-adapter channel="fromRabbit"
 		queue-names="si.test.queue" connection-factory="connectionFactory" />
 
@@ -39,10 +40,11 @@
 
 	<int:logging-channel-adapter id="loggingChannel" log-full-message="true"
 		level="INFO" />
-
+	
+	
 	<!-- Infrastructure -->
 
-	<rabbit:connection-factory id="connectionFactory" />
+	<rabbit:connection-factory id="connectionFactory" host="localhost" />
 
 	<rabbit:template id="amqpTemplate" connection-factory="connectionFactory" />
 
