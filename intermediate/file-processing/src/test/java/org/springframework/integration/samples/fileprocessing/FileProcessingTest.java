@@ -1,5 +1,5 @@
 /**
- * 
+ *
  */
 package org.springframework.integration.samples.fileprocessing;
 
@@ -10,9 +10,10 @@ import java.io.FileWriter;
 import org.apache.log4j.Logger;
 import org.junit.Before;
 import org.junit.Test;
-import org.springframework.context.ApplicationContext;
+
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
-import org.springframework.integration.core.PollableChannel;
+import org.springframework.messaging.PollableChannel;
 
 /**
  * @author Oleg Zhurakousky
@@ -21,7 +22,7 @@ import org.springframework.integration.core.PollableChannel;
 public class FileProcessingTest {
 	private int fileCount = 5;
 	private Logger logger = Logger.getLogger(FileProcessingTest.class);
-	
+
 	@Before
 	public void createDirectory(){
 		File directory = new File("input");
@@ -32,7 +33,7 @@ public class FileProcessingTest {
 	}
 
 	@Test
-	public void testSequentialFileProcessing() throws Exception {	
+	public void testSequentialFileProcessing() throws Exception {
 		logger.info("\n\n#### Starting Sequential processing test ####");
 		logger.info("Populating directory with files");
 		for (int i = 0; i < fileCount; i++) {
@@ -44,11 +45,12 @@ public class FileProcessingTest {
 		logger.info("Populated directory with files");
 		Thread.sleep(2000);
 		logger.info("Starting Spring Integration Sequential File processing");
-		ApplicationContext ac = new ClassPathXmlApplicationContext("META-INF/spring/integration/sequentialFileProcessing-config.xml");
+		ConfigurableApplicationContext ac = new ClassPathXmlApplicationContext("META-INF/spring/integration/sequentialFileProcessing-config.xml");
 		PollableChannel filesOutChannel = ac.getBean("filesOutChannel", PollableChannel.class);
 		for (int i = 0; i < fileCount; i++) {
 			logger.info("Finished processing " + filesOutChannel.receive(10000).getPayload());
 		}
+		ac.stop();
 	}
 	@Test
 	public void testConcurrentFileProcessing() throws Exception {
@@ -63,10 +65,11 @@ public class FileProcessingTest {
 		logger.info("Populated directory with files");
 		Thread.sleep(2000);
 		logger.info("Starting Spring Integration Sequential File processing");
-		ApplicationContext ac = new ClassPathXmlApplicationContext("/META-INF/spring/integration/concurrentFileProcessing-config.xml");
+		ConfigurableApplicationContext ac = new ClassPathXmlApplicationContext("/META-INF/spring/integration/concurrentFileProcessing-config.xml");
 		PollableChannel filesOutChannel = ac.getBean("filesOutChannel", PollableChannel.class);
 		for (int i = 0; i < fileCount; i++) {
 			logger.info("Finished processing " + filesOutChannel.receive(10000).getPayload());
 		}
+		ac.stop();
 	}
 }
