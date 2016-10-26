@@ -31,8 +31,8 @@ import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.springframework.boot.test.IntegrationTest;
-import org.springframework.boot.test.SpringApplicationConfiguration;
+import org.springframework.boot.context.embedded.LocalServerPort;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
 import org.springframework.integration.channel.DirectChannel;
@@ -41,20 +41,21 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.support.ChannelInterceptorAdapter;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
-import org.springframework.test.context.web.WebAppConfiguration;
 
 /**
  * @author Artem Bilan
  * @since 3.0
  */
 @RunWith(SpringJUnit4ClassRunner.class)
-@SpringApplicationConfiguration(classes = Application.class)
-@WebAppConfiguration
-@IntegrationTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, classes = Application.class)
 public class ApplicationTests {
+
+	@LocalServerPort
+	private String port;
 
 	@Test
 	public void testWebSockets() throws InterruptedException {
+		System.setProperty("local.server.port", this.port);
 		ConfigurableApplicationContext ctx = new ClassPathXmlApplicationContext("client-context.xml",
 				org.springframework.integration.samples.websocket.standard.client.Application.class);
 		DirectChannel webSocketInputChannel = ctx.getBean("webSocketInputChannel", DirectChannel.class);
