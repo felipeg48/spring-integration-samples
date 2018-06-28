@@ -30,26 +30,23 @@ import org.springframework.boot.autoconfigure.mail.MailProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.dsl.IntegrationFlows;
-import org.springframework.integration.dsl.core.Pollers;
-import org.springframework.integration.dsl.file.FileWritingMessageHandlerSpec;
-import org.springframework.integration.dsl.file.Files;
-import org.springframework.integration.dsl.mail.Mail;
+import org.springframework.integration.dsl.Pollers;
 import org.springframework.integration.file.FileHeaders;
 import org.springframework.integration.file.FileWritingMessageHandler;
+import org.springframework.integration.file.dsl.FileWritingMessageHandlerSpec;
+import org.springframework.integration.file.dsl.Files;
 import org.springframework.integration.file.remote.session.SessionFactory;
 import org.springframework.integration.file.splitter.FileSplitter;
-import org.springframework.integration.file.support.FileExistsMode;
+import org.springframework.integration.ftp.dsl.Ftp;
 import org.springframework.integration.ftp.session.DefaultFtpSessionFactory;
 import org.springframework.integration.http.config.EnableIntegrationGraphController;
+import org.springframework.integration.mail.dsl.Mail;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageHeaders;
 import org.springframework.messaging.MessagingException;
-import org.springframework.web.servlet.config.annotation.CorsRegistry;
-import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
-import org.springframework.web.servlet.config.annotation.WebMvcConfigurerAdapter;
 
 @SpringBootApplication
-@EnableIntegrationGraphController
+@EnableIntegrationGraphController(allowedOrigins = "http://localhost:8082")
 public class Application {
 
 	private static final String EMAIL_SUCCESS_SUFFIX = "emailSuccessSuffix";
@@ -64,6 +61,7 @@ public class Application {
 	/**
 	 * Poll for files, add an error channel, split into lines route the start/end markers
 	 * to {@link #markers()} and the lines to {@link #lines}.
+	 *
 	 * @return the flow.
 	 */
 	@Bean
@@ -72,7 +70,8 @@ public class Application {
 				Files.inboundAdapter(new File("/tmp/in"))
 						.preventDuplicates(false)
 						.patternFilter("*.txt"), e -> e.poller(Pollers.fixedDelay(5000)
-						.errorChannel("tfrErrors.input")))
+						.errorChannel("tfrErrors.input"))
+						.id("fileInboundChannelAdapter"))
 				.handle(Files.splitter(true, true))
 				.<Object, Class<?>>route(Object::getClass, m -> m
 						.channelMapping(FileSplitter.FileMarker.class, "markers.input")
@@ -82,6 +81,7 @@ public class Application {
 
 	/**
 	 * Process lines; append (no flush) to the appropriate file.
+	 *
 	 * @return the flow.
 	 */
 	@Bean
@@ -93,13 +93,13 @@ public class Application {
 	public FileWritingMessageHandlerSpec fileOut() {
 		return Files.outboundAdapter("'/tmp/out'")
 				.appendNewLine(true)
-				.fileNameExpression("payload.substring(1, 4) + '.txt'")
-				.fileExistsMode(FileExistsMode.APPEND_NO_FLUSH); // files remain open for efficiency
+				.fileNameExpression("payload.substring(1, 4) + '.txt'");
 	}
 
 	/**
 	 * Process file markers; ignore START, when END, flush the files, ftp them and
 	 * send an email.
+	 *
 	 * @return the flow.
 	 */
 	@Bean
@@ -115,17 +115,17 @@ public class Application {
 						// send the first file
 						.subscribe(sf -> sf.<FileSplitter.FileMarker, File>transform(p -> new File("/tmp/out/002.txt"))
 								.enrichHeaders(h -> h.header(FileHeaders.FILENAME, "002.txt", true))
-								.handleWithAdapter(a -> a.ftp(ftp1()).remoteDirectory("foo"), e -> e.id("ftp002")))
+								.handle(Ftp.outboundAdapter(ftp1()).remoteDirectory("foo"), e -> e.id("ftp002")))
 
 						// send the second file
 						.subscribe(sf -> sf.<FileSplitter.FileMarker, File>transform(p -> new File("/tmp/out/006.txt"))
 								.enrichHeaders(h -> h.header(FileHeaders.FILENAME, "006.txt", true))
-								.handleWithAdapter(a -> a.ftp(ftp2()).remoteDirectory("foo"), e -> e.id("ftp006")))
+								.handle(Ftp.outboundAdapter(ftp2()).remoteDirectory("foo"), e -> e.id("ftp006")))
 
 						// send the third file
 						.subscribe(sf -> sf.<FileSplitter.FileMarker, File>transform(p -> new File("/tmp/out/009.txt"))
 								.enrichHeaders(h -> h.header(FileHeaders.FILENAME, "009.txt", true))
-								.handleWithAdapter(a -> a.ftp(ftp3()).remoteDirectory("foo"), e -> e.id("ftp009")))
+								.handle(Ftp.outboundAdapter(ftp3()).remoteDirectory("foo"), e -> e.id("ftp009")))
 
 						// send an email
 						.subscribe(sf -> sf.transform(FileSplitter.FileMarker::getFilePath)
@@ -166,6 +166,7 @@ public class Application {
 
 	/**
 	 * Error flow - email failure
+	 *
 	 * @return the flow.
 	 */
 	@Bean
@@ -185,15 +186,17 @@ public class Application {
 
 	@Bean
 	public IntegrationFlow toMail() {
-		return f -> f.handleWithAdapter(a -> a.mail(this.mailProperties.getHost())
+		return f -> f
+				.handle(Mail.outboundAdapter(this.mailProperties.getHost())
 //						.javaMailProperties(b -> b.put("mail.debug", "true"))
-						.port(this.mailProperties.getPort())
-						.credentials(this.mailProperties.getUsername(), this.mailProperties.getPassword()),
-				e -> e.id("mailOut").advice(afterMailAdvice()));
+								.port(this.mailProperties.getPort())
+								.credentials(this.mailProperties.getUsername(), this.mailProperties.getPassword()),
+						e -> e.id("mailOut").advice(afterMailAdvice()));
 	}
 
 	/**
 	 * Rename the input file after success/failure.
+	 *
 	 * @return the flow.
 	 */
 	@Bean
@@ -212,18 +215,6 @@ public class Application {
 						new File(originalFile.getAbsolutePath() + headers.get(EMAIL_SUCCESS_SUFFIX) + ".email.failed"));
 			}
 			return null;
-		};
-	}
-
-	// Integration Graph CORS
-	@Bean
-	public WebMvcConfigurer corsConfigurer() {
-		return new WebMvcConfigurerAdapter() {
-
-			@Override
-			public void addCorsMappings(CorsRegistry registry) {
-				registry.addMapping("/integration").allowedOrigins("http://localhost:8082");
-			}
 		};
 	}
 

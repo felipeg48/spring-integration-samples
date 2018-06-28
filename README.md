@@ -3,7 +3,7 @@ Spring Integration Samples
 
 # Note
 
-This (master) branch requires Spring Integration 4.1 or above. For samples running against earlier versions of Spring Integration, use the __SI4.0.x__ and __SI3.0.x__ branches.
+This (master) branch requires Spring Integration 5.0 or above. For samples running against earlier versions of Spring Integration, use the __SI4.3.x__ and other branches.
 
 # Introduction
 
@@ -120,11 +120,11 @@ This category targets developers and architects who have a good understanding of
 * **loanshark** This extension to the loan broker sample shows how to exchange messages between Spring Integration applications (and other technologies) using **UDP**.
   **file-split-ftp** - Reads a file; splits into 3 based on contents; sends files over ftp; sends email with results.
 
-#Contributing
+# Contributing
 
 See the [Spring Integration Contributor Guidelines](https://github.com/spring-projects/spring-integration/blob/master/CONTRIBUTING.adoc) for information about how to contribute to this repository.
 
-#Resources
+# Resources
 
 For more information, please visit the Spring Integration website at: [http://projects.spring.io/spring-integration/](http://projects.spring.io/spring-integration/)
 

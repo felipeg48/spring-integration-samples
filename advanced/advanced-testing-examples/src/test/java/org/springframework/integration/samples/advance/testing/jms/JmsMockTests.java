@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,24 +18,34 @@ package org.springframework.integration.samples.advance.testing.jms;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Mockito.doReturn;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willAnswer;
+import static org.mockito.BDDMockito.willReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.jms.JMSException;
 import javax.jms.TextMessage;
 
-import org.apache.log4j.Logger;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.Mockito;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.integration.endpoint.SourcePollingChannelAdapter;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.jms.support.converter.SimpleMessageConverter;
 import org.springframework.messaging.Message;
@@ -59,22 +69,44 @@ import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 @DirtiesContext(classMode = ClassMode.AFTER_EACH_TEST_METHOD)
 public class JmsMockTests {
 
-	private static final Logger LOGGER = Logger.getLogger(JmsMockTests.class);
+	private static final Log LOGGER = LogFactory.getLog(JmsMockTests.class);
+
+	private final AtomicReference<String> testMessageHolder = new AtomicReference<>();
 
 	@Autowired
-	JmsTemplate mockJmsTemplate;
+	private JmsTemplate mockJmsTemplate;
+
+	@Autowired
+	private SourcePollingChannelAdapter jmsInboundChannelAdapter;
 
 	@Autowired
 	@Qualifier("inputChannel")
-	MessageChannel inputChannel;
+	private MessageChannel inputChannel;
 
 	@Autowired
 	@Qualifier("outputChannel")
-	SubscribableChannel outputChannel;
+	private SubscribableChannel outputChannel;
 
 	@Autowired
 	@Qualifier("invalidMessageChannel")
-	SubscribableChannel invalidMessageChannel;
+	private SubscribableChannel invalidMessageChannel;
+
+
+	@Before
+	public void setup() throws JMSException {
+		Mockito.reset(this.mockJmsTemplate);
+		TextMessage message = mock(TextMessage.class);
+
+		willReturn(new SimpleMessageConverter())
+				.given(this.mockJmsTemplate).getMessageConverter();
+
+		willReturn(message)
+				.given(this.mockJmsTemplate).receiveSelected(isNull());
+
+
+		willAnswer((Answer<String>) invocation -> testMessageHolder.get())
+				.given(message).getText();
+	}
 
 	/**
 	 * This test verifies that a message received on a polling JMS inbound channel adapter is
@@ -88,13 +120,13 @@ public class JmsMockTests {
 	public void testReceiveMessage() throws JMSException, InterruptedException, IOException {
 		String msg = "hello";
 
-		boolean sent = verifyJmsMessageReceivedOnOutputChannel(msg, outputChannel,new CountDownHandler() {
+		boolean sent = verifyJmsMessageReceivedOnOutputChannel(msg, outputChannel, new CountDownHandler() {
 
-			@Override
-			protected void verifyMessage(Message<?> message) {
-				assertEquals("hello",message.getPayload());
-		 	}
-		}
+					@Override
+					protected void verifyMessage(Message<?> message) {
+						assertEquals("hello", message.getPayload());
+					}
+				}
 		);
 		assertTrue("message not sent to expected output channel", sent);
 	}
@@ -110,14 +142,14 @@ public class JmsMockTests {
 	@Test
 	public void testReceiveInvalidMessage() throws JMSException, IOException, InterruptedException {
 		String msg = "whoops";
-		boolean sent = verifyJmsMessageReceivedOnOutputChannel(msg, invalidMessageChannel,new CountDownHandler() {
+		boolean sent = verifyJmsMessageReceivedOnOutputChannel(msg, invalidMessageChannel, new CountDownHandler() {
 
-			@Override
-			protected void verifyMessage(Message<?> message) {
-				assertEquals("invalid payload",message.getPayload());
-			}
+					@Override
+					protected void verifyMessage(Message<?> message) {
+						assertEquals("invalid payload", message.getPayload());
+					}
 
-		}
+				}
 		);
 		assertTrue("message not sent to expected output channel", sent);
 	}
@@ -164,18 +196,14 @@ public class JmsMockTests {
 		 * is also a mock.
 		 */
 
-		TextMessage message = mock(TextMessage.class);
-		when(this.mockJmsTemplate.getMessageConverter()).thenReturn(new SimpleMessageConverter());
-		when(this.mockJmsTemplate.receiveSelected(anyString())).thenReturn(message);
-
-		String text = (String) obj;
-
+		this.testMessageHolder.set((String) obj);
 		CountDownLatch latch = new CountDownLatch(1);
 		handler.setLatch(latch);
 
-		doReturn(text).when(message).getText();
 
 		expectedOutputChannel.subscribe(handler);
+
+		this.jmsInboundChannelAdapter.start();
 
 		boolean latchCountedToZero = latch.await(timeoutMillisec, TimeUnit.MILLISECONDS);
 
@@ -186,6 +214,7 @@ public class JmsMockTests {
 		return latchCountedToZero;
 
 	}
+
 	/*
 	 * A MessageHandler that uses a CountDownLatch to synchronize with the calling thread
 	 */
@@ -193,7 +222,7 @@ public class JmsMockTests {
 
 		CountDownLatch latch;
 
-		public final void setLatch(CountDownLatch latch){
+		public final void setLatch(CountDownLatch latch) {
 			this.latch = latch;
 		}
 
@@ -206,6 +235,7 @@ public class JmsMockTests {
 		 * org.springframework.integration.core.MessageHandler#handleMessage
 		 * (org.springframework.integration.Message)
 		 */
+		@Override
 		public void handleMessage(Message<?> message) throws MessagingException {
 			verifyMessage(message);
 			latch.countDown();

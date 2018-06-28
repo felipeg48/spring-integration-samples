@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,12 +17,11 @@
 package org.springframework.integration.samples.filesplit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 
 import java.io.BufferedReader;
@@ -33,7 +32,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.net.ftp.FTPFile;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -44,8 +45,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import org.springframework.integration.endpoint.SourcePollingChannelAdapter;
 import org.springframework.integration.file.remote.session.Session;
 import org.springframework.integration.file.remote.session.SessionFactory;
+import org.springframework.integration.test.context.SpringIntegrationTest;
 import org.springframework.integration.test.mail.TestMailServer;
 import org.springframework.integration.test.mail.TestMailServer.SmtpServer;
 import org.springframework.integration.test.util.TestUtils;
@@ -55,6 +58,7 @@ import org.springframework.test.context.junit4.SpringRunner;
 @RunWith(SpringRunner.class)
 @SpringBootTest
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+@SpringIntegrationTest(noAutoStartup = "fileInboundChannelAdapter")
 public class ApplicationTests {
 
 	private static final SmtpServer smtpServer = TestMailServer.smtp(0);
@@ -62,24 +66,40 @@ public class ApplicationTests {
 	@Autowired
 	private Session<FTPFile> session;
 
+	@Autowired
+	private SourcePollingChannelAdapter fileInboundChannelAdapter;
+
 	@BeforeClass
 	public static void setup() {
 		// Configure the boot property to send email to the test email server.
 		System.setProperty("spring.mail.port", Integer.toString(smtpServer.getPort()));
-		new File("/tmp/in/foo.txt").delete();
-		new File("/tmp/in/foo.txt.success").delete();
-		new File("/tmp/in/foo.txt.failed").delete();
 	}
 
 	@Before
-	public void beforeTest() {
+	public void beforeTest() throws IOException {
 		smtpServer.getMessages().clear();
+
+		tearDown();
+
+		this.fileInboundChannelAdapter.start();
+	}
+
+	@After
+	public void tearDown() throws IOException {
+		File inDir = new File("/tmp/in");
+		if (inDir.exists()) {
+			FileUtils.cleanDirectory(inDir);
+		}
+
+		File outDir = new File("/tmp/out");
+		if (outDir.exists()) {
+			FileUtils.cleanDirectory(outDir);
+		}
 	}
 
 	@SuppressWarnings("unchecked")
 	@Test
 	public void testSuccess() throws Exception {
-		reset(this.session);
 		String message = runTest(false);
 		assertThat(message).contains("File successfully split and transferred");
 		assertThat(message).contains(TestUtils.applySystemFileSeparator("/tmp/in/foo.txt"));
@@ -88,7 +108,7 @@ public class ApplicationTests {
 	@Test
 	public void testFailure() throws Exception {
 		willThrow(new RuntimeException("fail test exception"))
-			.given(this.session).write(any(InputStream.class), eq("foo/002.txt.writing"));
+				.given(this.session).write(any(InputStream.class), eq("foo/002.txt.writing"));
 		String message = runTest(true);
 		assertThat(message).contains("File split and transfer failed");
 		assertThat(message).contains("fail test exception");
@@ -109,34 +129,31 @@ public class ApplicationTests {
 		in.renameTo(new File("/tmp/in/", "foo.txt"));
 		File out = new File("/tmp/out/002.txt");
 		int n = 0;
-		while(n++ < 100 && (!out.exists() || out.length() < 12)) {
+		while (n++ < 100 && (!out.exists() || out.length() < 12)) {
 			Thread.sleep(100);
 		}
 		assertThat(out.exists()).isTrue();
 		BufferedReader br = new BufferedReader(new FileReader(out));
 		assertThat(br.readLine()).isEqualTo("*002,foo,bar");
 		br.close();
-		out.delete();
 		out = new File("/tmp/out/006.txt");
 		n = 0;
-		while(n++ < 100 && (!out.exists() || out.length() < 12)) {
+		while (n++ < 100 && (!out.exists() || out.length() < 12)) {
 			Thread.sleep(100);
 		}
 		assertThat(out.exists()).isTrue();
 		br = new BufferedReader(new FileReader(out));
 		assertThat(br.readLine()).isEqualTo("*006,baz,qux");
 		br.close();
-		out.delete();
 		out = new File("/tmp/out/009.txt");
 		n = 0;
-		while(n++ < 100 && (!out.exists() || out.length() < 12)) {
+		while (n++ < 100 && (!out.exists() || out.length() < 12)) {
 			Thread.sleep(100);
 		}
 		assertThat(out.exists()).isTrue();
 		br = new BufferedReader(new FileReader(out));
 		assertThat(br.readLine()).isEqualTo("*009,fiz,buz");
 		br.close();
-		out.delete();
 		if (!fail) {
 			in = new File("/tmp/in/", "foo.txt.success");
 		}
@@ -144,11 +161,10 @@ public class ApplicationTests {
 			in = new File("/tmp/in/", "foo.txt.failed");
 		}
 		n = 0;
-		while(n++ < 100 && !in.exists()) {
+		while (n++ < 100 && !in.exists()) {
 			Thread.sleep(100);
 		}
 		assertThat(in.exists()).isTrue();
-		in.delete();
 		// verify FTP
 		verify(this.session).write(any(InputStream.class), eq("foo/002.txt.writing"));
 		if (!fail) {
